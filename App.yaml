@@ -35,7 +35,7 @@ spec:
     spec:
       containers:
       - name: flask
-        image: archi1912/app-container:latest
+        image: meghanapatel2701/app-container:latest
         ports:
         - containerPort: 5000
         env:
