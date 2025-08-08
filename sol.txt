@@ -1,0 +1,436 @@
+ot it — this is IAC-3, the GitOps continuation of the WordPress + Nginx proxy + MariaDB stack you already deployed manually in IAC-2.
+
+Here’s how we’ll transform that into GitOps with Argo CD + Helm, step-by-step, keeping it beginner-friendly and using Docker Desktop Kubernetes.
+
+Plan for IAC-3
+Stack:
+
+Nginx reverse proxy – Helm chart, namespace nginx-proxy, exposed via NodePort (30080).
+
+WordPress – Helm chart, namespace wordpress, ClusterIP only.
+
+MariaDB – Helm chart, namespace mariadb, ClusterIP only.
+
+GitOps workflow:
+
+Each component gets its own Helm chart inside one GitHub repo.
+
+Argo CD watches the repo → deploys Helm charts automatically.
+
+You demonstrate auto-sync by bumping the image tag in Git, commit + push → Argo CD redeploys.
+
+Step-by-Step Tutorial
+1) Prerequisites
+Docker Desktop with Kubernetes enabled.
+
+kubectl, helm, and git installed.
+
+Optional: Argo CD CLI (argocd) for faster verification.
+
+GitHub repo ready (e.g., wp-nginx-mariadb-gitops).
+
+2) Git repo structure
+bash
+Copy
+Edit
+mkdir wp-nginx-mariadb-gitops && cd wp-nginx-mariadb-gitops
+git init
+mkdir -p charts/nginx-proxy charts/wordpress charts/mariadb argocd
+3) Create Helm charts
+We convert each component's Kubernetes manifests from IAC-2 into a Helm chart.
+
+3.1 Nginx Proxy (charts/nginx-proxy)
+charts/nginx-proxy/Chart.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v2
+name: nginx-proxy
+description: Nginx reverse proxy for WordPress
+type: application
+version: 0.1.0
+appVersion: "stable"
+charts/nginx-proxy/values.yaml
+
+yaml
+Copy
+Edit
+namespace: nginx-proxy
+
+service:
+  nodePort: 30080
+
+nginxConfig: |
+  server {
+    listen 80;
+    location / {
+      proxy_pass http://wordpress.wordpress.svc.cluster.local:80;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Port $server_port;
+      proxy_set_header X-Forwarded-Host $host;
+    }
+  }
+charts/nginx-proxy/templates/namespace.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+charts/nginx-proxy/templates/configmap.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-proxy-conf
+  namespace: {{ .Values.namespace }}
+data:
+  default.conf: |-
+{{ .Values.nginxConfig | indent 4 }}
+charts/nginx-proxy/templates/deployment.yaml
+
+yaml
+Copy
+Edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-proxy
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-proxy
+  template:
+    metadata:
+      labels:
+        app: nginx-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:stable
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: nginx-proxy-conf
+            items:
+              - key: default.conf
+                path: default.conf
+charts/nginx-proxy/templates/service.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-proxy
+  namespace: {{ .Values.namespace }}
+spec:
+  type: NodePort
+  selector:
+    app: nginx-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: {{ .Values.service.nodePort }}
+3.2 WordPress (charts/wordpress)
+charts/wordpress/Chart.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v2
+name: wordpress
+description: WordPress application
+type: application
+version: 0.1.0
+appVersion: "latest"
+charts/wordpress/values.yaml
+
+yaml
+Copy
+Edit
+namespace: wordpress
+
+image:
+  repository: wordpress
+  tag: latest
+
+db:
+  host: mariadb.mariadb.svc.cluster.local:3306
+  name: wordpress
+  user: wpuser
+  password: change-me
+charts/wordpress/templates/namespace.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+charts/wordpress/templates/secret.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wp-db-secret
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  WORDPRESS_DB_HOST: {{ .Values.db.host | quote }}
+  WORDPRESS_DB_NAME: {{ .Values.db.name | quote }}
+  WORDPRESS_DB_USER: {{ .Values.db.user | quote }}
+  WORDPRESS_DB_PASSWORD: {{ .Values.db.password | quote }}
+charts/wordpress/templates/deployment.yaml
+
+yaml
+Copy
+Edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordpress
+  template:
+    metadata:
+      labels:
+        app: wordpress
+    spec:
+      containers:
+        - name: wordpress
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 80
+          envFrom:
+            - secretRef:
+                name: wp-db-secret
+charts/wordpress/templates/service.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: wordpress
+  ports:
+    - port: 80
+      targetPort: 80
+3.3 MariaDB (charts/mariadb)
+charts/mariadb/Chart.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v2
+name: mariadb
+description: MariaDB for WordPress
+type: application
+version: 0.1.0
+appVersion: "10.11"
+charts/mariadb/values.yaml
+
+yaml
+Copy
+Edit
+namespace: mariadb
+
+image:
+  repository: mariadb
+  tag: "10.11"
+
+db:
+  rootPassword: root-change-me
+  name: wordpress
+  user: wpuser
+  password: change-me
+charts/mariadb/templates/namespace.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+charts/mariadb/templates/secret.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb-secret
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  MARIADB_ROOT_PASSWORD: {{ .Values.db.rootPassword | quote }}
+  MARIADB_DATABASE: {{ .Values.db.name | quote }}
+  MARIADB_USER: {{ .Values.db.user | quote }}
+  MARIADB_PASSWORD: {{ .Values.db.password | quote }}
+charts/mariadb/templates/deployment.yaml
+
+yaml
+Copy
+Edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mariadb-secret
+charts/mariadb/templates/service.yaml
+
+yaml
+Copy
+Edit
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: mariadb
+  ports:
+    - port: 3306
+      targetPort: 3306
+4) Commit & push
+bash
+Copy
+Edit
+git add .
+git commit -m "Helm charts for Nginx proxy, WordPress, MariaDB"
+git branch -M main
+git remote add origin https://github.com/YOUR_GITHUB/wp-nginx-mariadb-gitops.git
+git push -u origin main
+5) Install Argo CD
+bash
+Copy
+Edit
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl get pods -n argocd
+Login to UI:
+
+bash
+Copy
+Edit
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+Open https://localhost:8080 → login admin / password above.
+
+6) Create Argo CD Applications
+argocd/app-mariadb.yaml
+
+yaml
+Copy
+Edit
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mariadb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_GITHUB/wp-nginx-mariadb-gitops.git
+    targetRevision: main
+    path: charts/mariadb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mariadb
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+Repeat similar for wordpress and nginx-proxy (just change names, namespace, and path).
+
+bash
+Copy
+Edit
+kubectl apply -f argocd/app-mariadb.yaml
+kubectl apply -f argocd/app-wordpress.yaml
+kubectl apply -f argocd/app-nginx-proxy.yaml
+7) Verify
+bash
+Copy
+Edit
+kubectl get pods -n mariadb
+kubectl get pods -n wordpress
+kubectl get pods -n nginx-proxy
+kubectl get svc -n nginx-proxy
+Open http://localhost:30080 → should show WordPress setup page.
+
+8) Demonstrate auto-deploy
+Edit charts/wordpress/values.yaml → change:
+
+yaml
+Copy
+Edit
+tag: latest
+to another version (e.g., tag: php8.2-apache if supported) or bump Nginx tag.
+
+Commit & push:
+
+bash
+Copy
+Edit
+git add charts/wordpress/values.yaml
+git commit -m "Bump WordPress image"
+git push
+Argo CD will detect, sync, and rollout.
+
