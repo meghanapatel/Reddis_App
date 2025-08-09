@@ -1,0 +1,46 @@
+# flask:
+#   name: flaskapp
+#   labels:
+#      app: flask
+#   image:
+#     repository: meghanapatel2701/flask-app
+#     tag: latest
+#     pullPolicy: Always
+#   replicas: 1
+#   configmap:
+#     PGDB_HOST: postgres.postgres.svc.cluster.local
+#     PGDB_USER: postgres
+#     PGDB_NAME: mydb
+#     REDIS_HOST: redis.redis.svc.cluster.local
+#   service:
+#       type: NodePort
+#       port: 80
+#   secret: 
+#       PGDB_PASSWORD: postgres 
+
+
+
+  flask:
+  name: flaskapp
+  labels:
+    app: flask
+    # env: dev
+    # stack: wordpress
+  image:
+    repository: meghanapatel2701/flask-app
+    tag: latest
+    pullPolicy: Always
+  replicas: 1
+  configmap:
+    ## KEY: "value"
+    PGDB_HOST: postgres.postgres.svc.cluster.local
+    PGDB_USER: postgres
+    PGDB_NAME: mydb
+    REDIS_HOST: redis.redis.svc.cluster.local
+  containerPorts:
+      mysql: 80
+  service:
+      type: NodePort
+      port: 80
+  secret: 
+      PGDB_PASSWORD: postgres 

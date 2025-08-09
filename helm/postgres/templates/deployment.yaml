@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgres.name }}
+  labels:
+{{- toYaml .Values.postgres.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+{{- toYaml .Values.postgres.labels | nindent 6 }}
+  replicas: {{ .Values.postgres.replicas }}
+  template:
+    metadata:
+      labels:
+{{- toYaml .Values.postgres.labels | nindent 8 }}
+    spec:
+      containers:
+      - name: {{ .Values.postgres.name }}
+        image: {{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}
+        imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+        envFrom:
+          - configMapRef:
+              name: {{ .Values.postgres.name }}-configmap
+              optional: false
+          - secretRef:
+              name: {{ .Values.postgres.name }}-secret
+              optional: false
+        ports:
+        - containerPort: {{ .Values.postgres.containerPorts.mysql }}
+        volumeMounts:
+        - name: {{ .Values.postgres.name }}-volume
+          mountPath: /var/lib/mysql       # Path inside container
+      volumes:
+      - name: {{ .Values.postgres.name }}-volume
+        hostPath:
+          path: /var/lib/wp-data     # Path in host machine

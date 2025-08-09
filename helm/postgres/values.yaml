@@ -1,0 +1,22 @@
+postgres:
+  name: postgres
+  labels:
+    app: postgres
+    # env: dev
+    # stack: wordpress
+  image:
+    repository:  postgres:13
+    tag: latest
+    pullPolicy: Always
+  # image: postgres:13
+  replicas: 1
+  secret:
+    ## KEY: "value"
+     POSTGRES_USER: postgres
+     POSTGRES_PASSWORD: postgres
+     POSTGRES_DB: mydb
+  containerPorts:
+      mysql: 5432
+  service:
+      port: 5432
+  

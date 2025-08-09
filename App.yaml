@@ -2,9 +2,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flask-config
-  namespace: app
+  namespace: flaskapp
 data:
-  PGDB_HOST: postgres.db.svc.cluster.local
+  PGDB_HOST: postgres.postgres.svc.cluster.local
   PGDB_USER: postgres
   PGDB_NAME: mydb
   REDIS_HOST: redis.redis.svc.cluster.local
@@ -13,7 +13,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: flask-secret
-  namespace: app
+  namespace: flaskapp
 type: Opaque
 stringData:
   PGDB_PASSWORD: postgres
@@ -22,7 +22,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flask-app
-  namespace: app
+  namespace: flaskapp
 spec:
   replicas: 1
   selector:
@@ -35,7 +35,7 @@ spec:
     spec:
       containers:
       - name: flask
-        image: meghanapatel2701/app-container:latest
+        image: meghanapatel2701/flask-app:latest
         ports:
         - containerPort: 5000
         env:
@@ -69,7 +69,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: flask-service
-  namespace: app
+  namespace: flaskapp
 spec:
   selector:
     app: flask
@@ -77,4 +77,4 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 5000
-  type: LoadBalancer
+  type: NodePort
